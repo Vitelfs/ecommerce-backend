@@ -1,98 +1,89 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# E-commerce Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API for the e-commerce platform built with [NestJS](https://nestjs.com/). It powers authentication, user management, and automatic persistence of audit trails for tracked entities.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+**Frontend (separate repository):** [github.com/Vitelfs/ecommerce-frontend](https://github.com/Vitelfs/ecommerce-frontend)
 
-## Description
+## Current features
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+### JWT authentication (`/auth`)
 
-## Project setup
+- **Login** — email and password; returns an **access token** (JWT) and a **refresh token** (stored server-side with expiry). Login is **rate-limited** (stricter throttle) to reduce brute-force risk.
+- **Refresh** — issues a new access token using a valid refresh token.
+- **Logout** — invalidates the given refresh token.
+- **Current user** — `GET /auth/me` returns the authenticated profile (JWT required).
 
-```bash
-$ npm install
-```
+JWT payloads include user identity and role; verification uses **Passport** and **bcrypt** for password checks.
 
-## Compile and run the project
+### User registration & management (`/users`)
 
-```bash
-# development
-$ npm run start
+- **Creating users** — `POST /users` is protected by JWT. Only **Admin** or **SuperAdmin** can create users. The service hashes an **initial password** derived from the new user’s data (CPF/name pattern); the new account is then persisted in PostgreSQL.
+- **CRUD** — list, get by id, update, and remove users (JWT required on the controller).
 
-# watch mode
-$ npm run start:dev
+> There is no public self-sign-up endpoint yet; onboarding is modeled as **admin-driven user creation**.
 
-# production mode
-$ npm run start:prod
-```
+### Automatic audit (`src/audit`)
 
-## Run tests
+- A **TypeORM `EntitySubscriber`** listens to **insert**, **update**, and **remove** events on registered entity types.
+- For each qualifying change it writes an **`Audit`** row: action (create/update/delete), entity metadata, **old/new snapshots** where applicable, and **`user_id`** when the request context provides it (via **CLS** + `ClsInterceptor`, populated from the authenticated user).
+- **`AuditModule`** also exposes REST routes under `/audit` to create and query audit records (useful for admin tooling; tighten with guards in production as needed).
 
-```bash
-# unit tests
-$ npm run test
+## Stack
 
-# e2e tests
-$ npm run test:e2e
+- **NestJS 11**, **TypeScript**
+- **TypeORM** + **PostgreSQL**
+- **@nestjs/jwt**, **passport-jwt**, **bcryptjs**
+- **Joi**-validated configuration (`ConfigModule`)
+- **Swagger** UI at `/api` (Bearer JWT scheme configured)
+- **@nestjs/throttler** (global + stricter limits on login)
+- **helmet**, global **ValidationPipe** (whitelist / forbid unknown), global exception filter
+- **nestjs-cls** for per-request context (e.g. audit `user_id`)
 
-# test coverage
-$ npm run test:cov
-```
+Optional local infrastructure: **Docker Compose** for PostgreSQL, Redis, and pgAdmin (see `docker-compose.yml`).
 
-## Deployment
+## Prerequisites
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+- **Node.js** (LTS recommended)
+- **npm**
+- Running **PostgreSQL** (or Compose services) and a filled **environment** file
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## Configuration
+
+Copy the example file and set values (see comments in-repo):
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+cp .env-example .env.local
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Required variables include database credentials, `JWT_SECRET`, pgAdmin defaults, and `FRONTEND_URL` (for aligning with the storefront origin). The schema is validated at startup via `src/common/env.validation.ts`.
 
-## Resources
+## Run locally
 
-Check out a few resources that may come in handy when working with NestJS:
+```bash
+cd backend
+npm install
+# start Postgres (and optional Redis/pgAdmin) if you use Docker:
+# docker compose up -d
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+npm run start:dev
+```
 
-## Support
+- **HTTP:** `http://localhost:3000` (or `PORT` from env)
+- **OpenAPI / Swagger:** `http://localhost:3000/api`
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+Other scripts: `npm run build`, `npm run start:prod`, `npm run lint`, `npm test`, `npm run seed` (database seed, if configured).
 
-## Stay in touch
+## Project layout (high level)
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+```
+src/
+  auth/           # JWT, refresh tokens, guards, DTOs
+  users/          # User entity, CRUD, admin-only create
+  audit/          # Audit entity, subscriber, service, controller
+  common/         # Env validation, filters, interceptors
+  database/       # TypeORM config, seed
+```
 
-## License
+---
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Developed as the backend counterpart to the [ecommerce-frontend](https://github.com/Vitelfs/ecommerce-frontend) application.
